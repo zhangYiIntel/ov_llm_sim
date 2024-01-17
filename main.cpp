@@ -31,11 +31,10 @@ int main(int args, char *argv[]) {
     auto compiled_model = core.compile_model(model, "CPU", {
         {"PERF_COUNT", "YES"}
     });
-
+    auto llm_infer_ = compiled_model.create_infer_request();
+    auto type = ov::element::i64;
     std::cout << "Going to Iter" << std::endl;
     for (size_t count = 0; count < 2; count++) {
-        auto type = ov::element::i64;
-        auto llm_infer_ = compiled_model.create_infer_request();
         std::vector<int64_t> input_ids(seq_len + 100, 2);
 
         auto encoder_inputs_ = model->inputs();
@@ -103,6 +102,10 @@ int main(int args, char *argv[]) {
             //     std::cout << std::endl;
             // }
             // std::cout << std::endl;
+        }
+        // reset
+        for (auto&& state : llm_infer_.query_state()) {
+            state.reset();
         }
     }
 
