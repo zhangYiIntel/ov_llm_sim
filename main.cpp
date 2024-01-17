@@ -1,6 +1,5 @@
 #include <iostream>
 #include <algorithm>
-#include <ie_core.hpp>
 #include <openvino/opsets/opset8.hpp>
 #include <openvino/pass/serialize.hpp>
 #include <openvino/core/preprocess/pre_post_process.hpp>
