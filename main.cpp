@@ -18,7 +18,6 @@ int main(int args, char *argv[]) {
     std::string model_path(argv[1]);
     ov::Core core;
     std::shared_ptr<ov::Model> model = core.read_model(model_path);
-    using namespace InferenceEngine;
     auto enc_inputs = model->inputs();
     auto& features = enc_inputs[0];
     auto ov_version = ov::get_openvino_version();
