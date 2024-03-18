@@ -277,7 +277,6 @@ int main(int args, char *argv[]) {
     bool is_transpose = args >=3 ? std::string(argv[2]) == "T" ? true : false : true;
     std::shared_ptr<ov::Model> model = get_sdpa_model(seq_len, head_size, head_group_len, type, is_transpose);
     std::cout << "model creation success!" << std::endl;
-    using namespace InferenceEngine;
     auto ov_version = ov::get_openvino_version();
     // ov::serialize(model,
     //     "simple_sdpa.xml");
