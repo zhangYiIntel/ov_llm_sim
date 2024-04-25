@@ -21,11 +21,11 @@ int main(int args, char *argv[]) {
     auto enc_inputs = model->inputs();
     auto& features = enc_inputs[0];
     auto ov_version = ov::get_openvino_version();
-    size_t seq_len = args >= 3 ? std::stoi(std::string(argv[2])) : 1024;
+    size_t seq_len = args >= 3 ? std::stoi(std::string(argv[2])) : 2016;
     std::cout << "OPENVINO|VERSION|" << ov_version << std::endl;
     core.set_property("CPU", ov::num_streams(1));
     // core.set_property("CPU", ov::inference_num_threads(1));
-    core.set_property("CPU", ov::affinity(ov::Affinity::NONE));
+    // core.set_property("CPU", ov::affinity(ov::Affinity::NONE));
     core.set_property("CPU", ov::hint::inference_precision(getenv("DISABLE_BF16") ? ov::element::f32 : ov::element::bf16));
     auto compiled_model = core.compile_model(model, "CPU", {
         {"PERF_COUNT", "YES"}
@@ -34,40 +34,46 @@ int main(int args, char *argv[]) {
     auto type = ov::element::i64;
     std::cout << "Going to Iter" << std::endl;
     for (size_t count = 0; count < 2; count++) {
-        std::vector<int64_t> input_ids(seq_len + 100, 2);
+        size_t batch_size = 128;
+        std::vector<int64_t> input_ids(batch_size * (seq_len + 100), 2);
 
         auto encoder_inputs_ = model->inputs();
         // fake hidden state
         //input_cache
-        ov::Shape input_ids_shape = {1, seq_len};
+
+        ov::Shape input_ids_shape = {batch_size, seq_len};
         ov::Tensor input_ids_ov = ov::Tensor(type, input_ids_shape, input_ids.data());
 
         // attention_mask
-        std::vector<int64_t> attn_mask(seq_len + 100, 1);
-        ov::Shape attn_mask_shape = {1, seq_len};
+        std::vector<int64_t> attn_mask(batch_size*(seq_len + 100), 1);
+        ov::Shape attn_mask_shape = {batch_size, seq_len};
         ov::Tensor attn_mask_ov = ov::Tensor(type, attn_mask_shape, attn_mask.data());
 
 
-        std::vector<int64_t> position_ids(seq_len + 100);
-        std::iota(position_ids.begin(), position_ids.end(), 0);
-        ov::Shape position_ids_shape = {1, seq_len};
+        std::vector<int64_t> position_ids(batch_size*(seq_len + 100));
+        for (size_t i = 0; i < batch_size; i++) {
+            std::iota(position_ids.begin() + i * (seq_len + 100), position_ids.begin() + (i + 1) * (seq_len + 100), 0);
+        }
+        
+        ov::Shape position_ids_shape = {batch_size, seq_len};
         ov::Tensor position_ids_ov = ov::Tensor(type, position_ids_shape, position_ids.data());
         
-        std::vector<int32_t> beam_idx = {0};
-        ov::Shape beam_idx_shape = {1};
+        std::vector<int32_t> beam_idx(batch_size, 0);
+        std::iota(beam_idx.begin(), beam_idx.end(), 0);
+        ov::Shape beam_idx_shape = {batch_size};
         ov::Tensor beam_idx_ov = ov::Tensor(ov::element::i32, beam_idx_shape, beam_idx.data());
         for(size_t i = 0; i < 10; i++) {
             std::cout << "The " << i+1 << " token" << std::endl;
             if (i != 0) {
-                attn_mask_ov = ov::Tensor(type, {1, seq_len + i}, attn_mask.data());
-                position_ids_ov = ov::Tensor(type, {1, 1}, position_ids.data() + i);
-
-                input_ids_ov = ov::Tensor(type, {1, 1}, input_ids.data() + i);
+                attn_mask_ov = ov::Tensor(type, {batch_size, seq_len + i}, attn_mask.data() + batch_size * (seq_len + i));
+                position_ids_ov = ov::Tensor(type, {batch_size, 1}, position_ids.data() + batch_size * (seq_len + i));
+                input_ids_ov = ov::Tensor(type, {batch_size, 1}, input_ids.data());
+                beam_idx_ov = ov::Tensor(ov::element::i32, beam_idx_shape, beam_idx.data());
             }
             int idx = 0;
             for (auto& input : encoder_inputs_) {
                 std::string name = input.get_node()->get_friendly_name();
-                // std::cout << "set input " << name << std::endl;
+                std::cout << "set input " << name << std::endl;
                 if (name == "input_ids") {
                     llm_infer_.set_input_tensor(idx++, input_ids_ov);
                 } else if (name == "attention_mask") {
@@ -106,10 +112,11 @@ int main(int args, char *argv[]) {
         for (auto&& state : llm_infer_.query_state()) {
             state.reset();
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
     static int count = 0;
-    ov::serialize(compiled_model.get_runtime_model(),
-        "llm_exec_graph_"+std::to_string(count++)+".xml");
+    // ov::serialize(compiled_model.get_runtime_model(),
+    //    "llm_exec_graph_"+std::to_string(count++)+".xml");
 }
 
