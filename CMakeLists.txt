@@ -9,3 +9,10 @@ target_link_libraries(llm_test openvino::runtime)
 
 add_executable(simple_sdpa simple_sdpa.cpp)
 target_link_libraries(simple_sdpa openvino::runtime)
+
+add_executable(benchmark benchmark.cpp)
+target_link_libraries(benchmark openvino::runtime)
+
+
+add_executable(matmul ov_matmul.cpp)
+target_link_libraries(matmul openvino::runtime)
