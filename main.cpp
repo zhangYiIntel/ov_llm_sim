@@ -21,20 +21,26 @@ int main(int args, char *argv[]) {
     auto enc_inputs = model->inputs();
     auto& features = enc_inputs[0];
     auto ov_version = ov::get_openvino_version();
-    size_t seq_len = args >= 3 ? std::stoi(std::string(argv[2])) : 2016;
+    size_t seq_len = args >= 3 ? std::stoi(std::string(argv[2])) : 2064;
+    bool is_beam_search = args >= 4 ? true : false;
     std::cout << "OPENVINO|VERSION|" << ov_version << std::endl;
+    std::string search_type = is_beam_search ? "Beam Search" : "Greedy Search";
+    std::cout << "Search Type|" << search_type << std::endl;
     core.set_property("CPU", ov::num_streams(1));
     // core.set_property("CPU", ov::inference_num_threads(1));
     // core.set_property("CPU", ov::affinity(ov::Affinity::NONE));
     core.set_property("CPU", ov::hint::inference_precision(getenv("DISABLE_BF16") ? ov::element::f32 : ov::element::bf16));
+    //core.set_property("CPU", ov::hint::inference_precision(ov::element::bf16));
     auto compiled_model = core.compile_model(model, "CPU", {
         {"PERF_COUNT", "YES"}
     });
+    ov::serialize(compiled_model.get_runtime_model(),
+        "llm_exec_graph_"+std::to_string(3)+".xml");
     auto llm_infer_ = compiled_model.create_infer_request();
     auto type = ov::element::i64;
     std::cout << "Going to Iter" << std::endl;
     for (size_t count = 0; count < 2; count++) {
-        size_t batch_size = 128;
+        size_t batch_size = is_beam_search ? 4 : 5;
         std::vector<int64_t> input_ids(batch_size * (seq_len + 100), 2);
 
         auto encoder_inputs_ = model->inputs();
@@ -58,17 +64,23 @@ int main(int args, char *argv[]) {
         ov::Shape position_ids_shape = {batch_size, seq_len};
         ov::Tensor position_ids_ov = ov::Tensor(type, position_ids_shape, position_ids.data());
         
-        std::vector<int32_t> beam_idx(batch_size, 0);
+        std::vector<int32_t> beam_idx(batch_size * 16, 0);
+        std::vector<std::vector<int32_t> > next_beam_idx = {
+            {0, 1, 2, 3}, {0, 0, 0, 0}, {2, 0, 3, 1}, {1, 0, 2, 3}, {0, 0, 1, 0}, 
+            {2, 1, 3, 0}, {1, 0, 0, 3}, {2, 1, 0, 0}, {0, 1, 2, 3}, {0, 0, 2, 1}
+        };
         std::iota(beam_idx.begin(), beam_idx.end(), 0);
         ov::Shape beam_idx_shape = {batch_size};
         ov::Tensor beam_idx_ov = ov::Tensor(ov::element::i32, beam_idx_shape, beam_idx.data());
-        for(size_t i = 0; i < 10; i++) {
+        size_t max_new_length = is_beam_search ? next_beam_idx.size() : 10;
+        for(size_t i = 0; i < 1; i++) {
             std::cout << "The " << i+1 << " token" << std::endl;
             if (i != 0) {
                 attn_mask_ov = ov::Tensor(type, {batch_size, seq_len + i}, attn_mask.data() + batch_size * (seq_len + i));
                 position_ids_ov = ov::Tensor(type, {batch_size, 1}, position_ids.data() + batch_size * (seq_len + i));
                 input_ids_ov = ov::Tensor(type, {batch_size, 1}, input_ids.data());
-                beam_idx_ov = ov::Tensor(ov::element::i32, beam_idx_shape, beam_idx.data());
+                beam_idx_ov = is_beam_search ? ov::Tensor(ov::element::i32, beam_idx_shape, next_beam_idx[i].data())
+                                             : ov::Tensor(ov::element::i32, beam_idx_shape, beam_idx.data());
             }
             int idx = 0;
             for (auto& input : encoder_inputs_) {
@@ -112,11 +124,10 @@ int main(int args, char *argv[]) {
         for (auto&& state : llm_infer_.query_state()) {
             state.reset();
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
     static int count = 0;
-    // ov::serialize(compiled_model.get_runtime_model(),
-    //    "llm_exec_graph_"+std::to_string(count++)+".xml");
+    ov::serialize(compiled_model.get_runtime_model(),
+        "llm_exec_graph_"+std::to_string(count++)+".xml");
 }
 
